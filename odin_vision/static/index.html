@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Odin Vision</title><link rel="stylesheet" href="/static/style.css"></head>
+<body><header><div><span class="eyebrow">MEMORIA VISUAL EN DIRECTO</span><h1>Odin Vision</h1></div><span id="status" role="status">Desconectado</span></header>
+<main><section class="viewer"><div class="stage"><video id="video" playsinline muted></video><canvas id="overlay"></canvas><p id="placeholder">Conecta una cámara o abre un vídeo para comenzar.</p></div>
+<div class="toolbar"><label>Token <input id="token" type="password" autocomplete="off" placeholder="Solo si está configurado"></label>
+<label>Transporte <select id="transport"><option value="jpeg">WebSocket JPEG</option><option value="webrtc">WebRTC</option></select></label>
+<button id="start">Conectar cámara</button><label class="file">Abrir vídeo<input id="file" type="file" accept="video/*"></label><button id="stop" disabled>Detener</button></div>
+<p class="hint">El cliente captura y dibuja. Los modelos y la memoria se ejecutan en el servidor.</p>
+<div id="message" role="alert"></div><div id="objects" class="objects"></div></section>
+<aside><section><h2>Detección</h2><label>Categorías (separadas por coma)<input id="classes" value="person,car,backpack,drone"></label><label>Ignorar<input id="ignore" placeholder="car,tree"></label>
+<label>Similitud mínima <input id="threshold" type="number" min="0" max="1" step="0.01" placeholder="calibrada"></label><label>Grabar etiquetas (separadas por coma)<input id="record-labels" placeholder="Falcon,Mochila azul"></label><button id="filters">Aplicar filtros</button></section>
+<section><h2>Enseñar sin entrenar</h2><p id="selected">Selecciona un objeto en el vídeo o la lista.</p><label>Etiqueta<input id="label" maxlength="100" placeholder="Mochila azul 01"></label><button id="save">Guardar objeto</button>
+<label>Categoría de la referencia<input id="category" value="backpack" maxlength="100"></label><label class="file">Registrar imagen<input id="reference-learn" type="file" accept="image/jpeg,image/png,image/webp"></label>
+<label class="file">Buscar similares en directo<input id="reference-search" type="file" accept="image/jpeg,image/png,image/webp"></label><button id="clear-search">Quitar búsqueda</button></section>
+<section><h2>Comandos</h2><label>Texto o voz<input id="command" placeholder="Guarda como Falcon" maxlength="300"></label><button id="send">Enviar</button><button id="voice">Dictar</button><p class="hint">«Ignora coches» · «Solo muéstrame personas y drones». El dictado depende del navegador.</p></section>
+<section><h2>Memoria</h2><button id="refresh">Actualizar</button><div id="labels"></div><label>Filtrar avistamientos por etiqueta<input id="event-label" maxlength="100"></label><button id="history">Ver avistamientos</button><div id="events"></div><button id="clips-refresh">Ver clips</button><div id="clips"></div></section>
+</aside></main><script src="/static/app.js" defer></script></body></html>

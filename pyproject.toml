@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "odin-vision"
+version = "0.1.0"
+description = "Servidor de vídeo con memoria visual persistente sin reentrenamiento"
+requires-python = ">=3.10"
+dependencies = ["fastapi>=0.115,<1", "uvicorn[standard]>=0.30,<1", "numpy>=1.26,<3", "Pillow>=10.4,<13", "opencv-python-headless>=4.10,<5"]
+
+[project.optional-dependencies]
+models = ["ultralytics>=8.3,<9", "transformers>=4.48,<5", "torch>=2.2,<3", "sentencepiece>=0.2,<1", "protobuf>=4,<7"]
+webrtc = ["aiortc>=1.10,<2"]
+test = ["pytest>=8,<10", "httpx>=0.27,<1", "ruff>=0.9,<1"]
+client = ["httpx>=0.27,<1"]
+
+[project.scripts]
+odin-vision = "odin_vision.__main__:main"
+odin-camera = "odin_vision.camera:main"
+
+[tool.setuptools.packages.find]
+include = ["odin_vision*"]
+
+[tool.setuptools.package-data]
+odin_vision = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+exclude = ["build", ".venv", "data"]
