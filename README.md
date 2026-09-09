@@ -297,3 +297,8 @@ no media is shipped in this repository.
 - All published figures are CPU figures. No GPU was available during testing.
 - Tune the threshold and the margin with positive and negative examples from your own camera before trusting
   any result.
+
+## License
+
+[PolyForm Noncommercial License 1.0.0](LICENSE.md). Free to use, modify and share for any noncommercial
+purpose. Commercial use requires a separate license from the author.
