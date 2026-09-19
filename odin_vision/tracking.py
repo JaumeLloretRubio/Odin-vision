@@ -13,6 +13,41 @@ def iou(a, b):
     return intersection / union if union > 0 else 0.0
 
 
+def candidate_pairs(tracks, detections):
+    """IoU por categoría; los grupos pequeños evitan crear matrices temporales."""
+    if len(tracks) * len(detections) < 256:
+        return sorted(((overlap, t.id, i) for t in tracks for i, d in enumerate(detections)
+                       if t.category == d.category and (overlap := iou(t.box, d.box)) >= 0.2), reverse=True)
+    pairs = []
+    grouped_tracks, grouped_indices = {}, {}
+    for track in tracks:
+        grouped_tracks.setdefault(track.category, []).append(track)
+    for index, detection in enumerate(detections):
+        grouped_indices.setdefault(detection.category, []).append(index)
+    for category, group in grouped_tracks.items():
+        indices = grouped_indices.get(category, [])
+        if not indices:
+            continue
+        if len(group) * len(indices) < 64:
+            pairs.extend((overlap, t.id, i) for t in group for i in indices
+                         if (overlap := iou(t.box, detections[i].box)) >= 0.2)
+            continue
+        a = np.asarray([t.box for t in group], dtype=np.float64)
+        b = np.asarray([detections[i].box for i in indices], dtype=np.float64)
+        extent = np.maximum(0, np.minimum(a[:, None, 2:], b[None, :, 2:]) -
+                            np.maximum(a[:, None, :2], b[None, :, :2]))
+        intersection = extent[:, :, 0] * extent[:, :, 1]
+        area_a = (a[:, 2]-a[:, 0]) * (a[:, 3]-a[:, 1])
+        area_b = (b[:, 2]-b[:, 0]) * (b[:, 3]-b[:, 1])
+        union = area_a[:, None] + area_b[None, :] - intersection
+        overlap = np.divide(intersection, union, out=np.zeros_like(union), where=union > 0)
+        rows, columns = np.nonzero(overlap >= 0.2)
+        pairs.extend((float(overlap[row, column]), group[row].id, indices[column])
+                     for row, column in zip(rows, columns))
+    # Conservar el desempate histórico por ID e índice de detección.
+    return sorted(pairs, reverse=True)
+
+
 @dataclass
 class Track:
     id: int
@@ -40,12 +75,20 @@ class Tracker:
 
     def update(self, detections, frame):
         self.tracks = {k: t for k, t in self.tracks.items() if frame-t.last_seen <= self.max_age}
-        for track in self.tracks.values():
-            track.box = tuple(np.clip(np.asarray(track.anchor) + track.velocity*(frame-track.last_seen), 0, 1))
+        tracks = list(self.tracks.values())
+        if len(tracks) < 16:
+            for track in tracks:
+                track.box = tuple(np.clip(np.asarray(track.anchor) + track.velocity*(frame-track.last_seen), 0, 1))
+        else:
+            anchors = np.asarray([track.anchor for track in tracks])
+            velocities = np.asarray([track.velocity for track in tracks])
+            elapsed = np.asarray([frame-track.last_seen for track in tracks])[:, None]
+            boxes = np.clip(anchors + velocities*elapsed, 0, 1)
+            for track, box in zip(tracks, boxes):
+                track.box = tuple(box)
         if detections is None:
-            return list(self.tracks.values())
-        pairs = sorted([(iou(t.box, d.box), t.id, i) for t in self.tracks.values()
-                        for i, d in enumerate(detections) if t.category == d.category], reverse=True)
+            return tracks
+        pairs = candidate_pairs(tracks, detections)
         matched_tracks, matched_detections = set(), set()
         for overlap, tid, index in pairs:
             if overlap < 0.2 or tid in matched_tracks or index in matched_detections:

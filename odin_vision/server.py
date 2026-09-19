@@ -109,12 +109,23 @@ def create_app(settings=None, vision=None):
         return error(500, "Error interno del servidor", "internal_error")
 
     async def image_body(request):
-        data = bytearray()
+        chunks, size, data = [], 0, None
         async for chunk in request.stream():
-            data.extend(chunk)
-            if len(data) > settings.max_bytes:
+            if not chunk:
+                continue
+            size += len(chunk)
+            if size > settings.max_bytes:
                 raise HTTPException(413, "Imagen demasiado grande")
-        return await run(decode_image, bytes(data), settings)
+            if data is not None:
+                data.extend(chunk)
+            elif len(chunks) < 64:
+                chunks.append(chunk)
+            else:
+                # Acotar referencias incluso si el cliente envía un byte por fragmento.
+                data = bytearray().join(chunks)
+                chunks.clear()
+                data.extend(chunk)
+        return await run(decode_image, bytes(data) if data is not None else b"".join(chunks), settings)
 
     @app.get("/api/v1/status")
     async def status():

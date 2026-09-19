@@ -33,12 +33,15 @@ def decode_image(data, settings):
     if len(data) > settings.max_bytes:
         raise ValueError("La imagen supera el límite de bytes")
     try:
-        with Image.open(io.BytesIO(data)) as image:
+        with io.BytesIO(data) as source, Image.open(source) as image:
             if image.format not in {"JPEG", "PNG", "WEBP"}:
                 raise ValueError("Formato de imagen no permitido")
             if image.width * image.height > settings.max_pixels:
                 raise ValueError("La imagen supera el límite de píxeles")
             image.load()
+            # JPEG ya cargado no necesita otra copia RGB; PNG/WebP retienen estado del decodificador.
+            if image.format == "JPEG" and image.mode == "RGB":
+                return image
             return image.convert("RGB")
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
         raise ValueError("Imagen inválida") from exc
@@ -95,6 +98,8 @@ class Engine:
     def configure(self, sid, config):
         session = self.session(sid)
         config = self.resolve(config)
+        if config == session.config:
+            return config.model_dump()
         session.config = config
         next_id = session.tracker.next_id
         session.tracker = Tracker(max_age=max(15, config.detector_interval*3))
@@ -121,37 +126,48 @@ class Engine:
         session.visible = {t.id for t in tracks}
         objects, alerts = [], []
         # Una pasada por lote para todo el frame: en CPU el coste por track baja frente a una llamada por track.
-        patches = {track.id: crop(image, track.box) for track in tracks}
+        patches = {track.id: crop(image, track.box) for track in tracks if track.last_seen == frame}
         pending = [track for track in tracks if track.last_seen == frame and
                    (frame-track.recognized_at >= config.recognition_interval or
                     track.revision != self.memory.revision or
                     (session.reference is not None))]
+        galleries = {category: self.memory.has_examples(category) for category in {t.category for t in pending}}
+        embedded = [t for t in pending if session.reference is not None or galleries[t.category]]
         vectors = {}
-        if pending:
-            vectors = dict(zip([t.id for t in pending],
-                               self.vision.embed_many([patches[t.id] for t in pending])))
+        if embedded:
+            vectors = dict(zip([t.id for t in embedded],
+                               self.vision.embed_many([patches[t.id] for t in embedded])))
+        recognition = {}
+        groups = {}
+        for track in embedded:
+            if frame-track.recognized_at >= config.recognition_interval or track.revision != self.memory.revision:
+                groups.setdefault(track.category, []).append(track)
+        for category, group in groups.items():
+            matches = self.memory.match_many([vectors[t.id] for t in group], category,
+                                             config.threshold, config.margin)
+            recognition.update(zip([t.id for t in group], matches))
         described = [track for track in pending if config.describe and track.description is None]
         if described:
             for track, text in zip(described, self.vision.describe_many([patches[t.id] for t in described],
                                                                         [t.category for t in described])):
                 track.description = text
+        events, event_tracks = [], []
         for track in tracks:
             observed = track.last_seen == frame
-            patch = patches[track.id]
-            good = self.settings.backend == "demo" or quality(patch)
-            if observed and good:
-                track.crops.append(patch.resize((min(patch.width, 224), min(patch.height, 224))))
+            if observed:
+                patch = patches[track.id]
+                if self.settings.backend == "demo" or quality(patch):
+                    track.crops.append(patch.resize((min(patch.width, 224), min(patch.height, 224))))
             vector = vectors.get(track.id)
-            if vector is not None and (frame-track.recognized_at >= config.recognition_interval or
-                                       track.revision != self.memory.revision):
-                track.label, track.similarity = self.memory.match(vector, track.category, config.threshold, config.margin)
+            if observed and (frame-track.recognized_at >= config.recognition_interval or
+                             track.revision != self.memory.revision):
+                track.label, track.similarity = recognition.get(track.id, (None, None))
                 track.recognized_at, track.revision = frame, self.memory.revision
             now = time.time()
             if observed and (not track.announced or now-track.last_event >= 5):
-                self.memory.event(sid, track.id, track.category, track.label, track.similarity, session.location,
-                                  "new_object" if not track.announced else "sighting")
-                track.announced = True
-                track.last_event = now
+                events.append((now, sid, track.id, track.category, track.label, track.similarity, session.location,
+                               "new_object" if not track.announced else "sighting"))
+                event_tracks.append((track, now))
             match = None
             if observed and session.reference is not None:
                 match = float(np.clip(vector @ session.reference, -1, 1))
@@ -160,6 +176,10 @@ class Engine:
             objects.append({"id": track.id, "box": list(track.box), "class": track.category,
                             "label": track.label, "description": track.description, "confidence": track.confidence,
                             "similarity": track.similarity, "reference_similarity": match, "predicted": not observed})
+        self.memory.event_many(events)
+        for track, timestamp in event_tracks:
+            track.announced = True
+            track.last_event = timestamp
         session.last = {"frame": frame, "timestamp": time.time(), "width": image.width, "height": image.height,
                         "objects": objects, "alerts": alerts, "backend": self.settings.backend,
                         "processing_ms": round((time.perf_counter()-started)*1000, 2)}

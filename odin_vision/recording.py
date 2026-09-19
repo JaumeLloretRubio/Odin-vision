@@ -41,7 +41,8 @@ class Recorder:
             self.started = time.time()
             self.frames = []
             self.labels = set()
-        self.writer.write(cv2.cvtColor(np.asarray(image.resize(self.size)), cv2.COLOR_RGB2BGR))
+        frame = image if image.size == self.size else image.resize(self.size)
+        self.writer.write(cv2.cvtColor(np.asarray(frame), cv2.COLOR_RGB2BGR))
         self.labels.update(matches)
         self.frames.append({"frame": result["frame"], "timestamp": result["timestamp"]})
         if len(self.frames) >= 300:
